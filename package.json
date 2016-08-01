@@ -10,9 +10,12 @@
   "license": "MIT",
   "scripts": {
     "lint": "standard",
-    "test": "node test.js"
+    "test": "node test.js",
+    "precoverage": "istanbul cover test.js",
+    "coverage": "istanbul check-coverage --branches 100 --functions 100 --statements 100 --lines 100"
   },
   "devDependencies": {
+    "istanbul": "^0.4.4",
     "standard": "^7.1.2"
   },
   "dependencies": {
