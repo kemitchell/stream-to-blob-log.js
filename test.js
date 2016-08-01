@@ -105,6 +105,18 @@ tape('invalid blob length', function (test) {
   test.end()
 })
 
+tape('log path is a directory', function (test) {
+  mkdtempd(function (error, directory, cleanUp) {
+    test.ifError(error, 'no error')
+    AppendStream(directory, CRC_OF_4096_ZERO_BYTES, 4096)
+    .once('error', function (error) {
+      test.equal(error.isDirectory, true)
+      cleanUp()
+      test.end()
+    })
+  })
+})
+
 tape('nonexistent log file', function (test) {
   mkdtempd(function (error, directory, cleanUp) {
     test.ifError(error, 'no error')

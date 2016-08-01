@@ -60,10 +60,16 @@ function StreamingBlobLogAppend (path, crc, length) {
     if (error) {
       self.emit('error', error)
     } else {
-      // If the file is empty or doesn't exist, it doesn't have a
-      // first-sequence-number value written.  If we append without
-      // that initial value, it won't be a complete blob-log file.
-      if (!stats.isFile() || stats.size === 0) {
+      // Cannot append to a directory.
+      if (stats.isDirectory()) {
+        var directoryError = new Error('path is a directory')
+        directoryError.isDirectory = true
+        self.emit('error', directoryError)
+
+      // If the file is empty, it doesn't have a first-sequence-number
+      // value written.  If we append without that initial value, it
+      // won't be a complete blob-log file.
+      } else if (stats.size === 0) {
         var noSequenceNumber = new Error(
           'cannot append to file without first sequence number'
         )
