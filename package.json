@@ -1,0 +1,21 @@
+{
+  "name": "stream-to-blob-log",
+  "version": "0.0.0",
+  "description": "stream data to a blob-log",
+  "author": "Kyle E. Mitchell <kyle@kemitchell.com> (https://kemitchell.com/)",
+  "repository": "kemitchell/stream-to-blob-log.js",
+  "files": [
+    "index.js"
+  ],
+  "license": "MIT",
+  "scripts": {
+    "lint": "standard",
+    "test": "node test.js"
+  },
+  "devDependencies": {
+    "standard": "^7.1.2"
+  },
+  "dependencies": {
+    "crc-hash": "^0.2.2"
+  }
+}
