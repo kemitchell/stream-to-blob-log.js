@@ -1,7 +1,7 @@
 {
   "name": "stream-to-blob-log",
   "description": "stream data to a blob-log",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "author": "Kyle E. Mitchell <kyle@kemitchell.com> (https://kemitchell.com/)",
   "dependencies": {
     "crc-hash": "^0.2.2",
