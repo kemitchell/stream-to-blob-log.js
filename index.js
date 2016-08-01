@@ -1,5 +1,6 @@
 var EventEmitter = require('events').EventEmitter
 var Writable = require('readable-stream').Writable
+var PassThrough = require('readable-stream').PassThrough
 var createHash = require('crc-hash').createHash
 var fs = require('fs')
 var inherits = require('util').inherits
@@ -7,17 +8,20 @@ var inherits = require('util').inherits
 var CRC_BYTES = 4 // Length of a CRC-32, in bytes
 var LENGTH_BYTES = 4 // Bytes for blob length
 
-function WriteStream () {
+module.exports = BlobLogAppend
+
+function BlobLogAppend (path, crc, length) {
+  if (!(this instanceof BlobLogAppend)) {
+    return new BlobLogAppend(path, crc, length)
+  }
   var self = this
-  var arity = arguments.length
-  var path
   // Given just a file path, must:
   // 1. Write a zero-filled placeholder CRC-32 and length prefix.
   // 2. Stream blob bytes to the file after the placeholder prefix,
   //    counting length and calculating CRC-32 as bytes stream through.
   // 3. Before emitting `finish`, open another write stream to overwrite
   //    the placeholder prefix with the calculated CRC-32 and length.
-  if (arity === 1) {
+  if (crc === undefined && length === undefined) {
     path = self._path = arguments[0]
     self._givenPrefix = false
     self._length = 0
@@ -27,12 +31,12 @@ function WriteStream () {
   // 2. Stream blob bytes to the file after the prefix.
   } else {
     self._givenPrefix = true
-    path = self._path = arguments[0]
-    var crc = self._CRC = arguments[1]
+    self._path = path
+    self._CRC = crc
     if (!isValidUInt32(crc)) {
       throw new Error('invalid CRC-32')
     }
-    var length = self._length = arguments[2]
+    self._length = length
     if (!isValidLength(length)) {
       throw new Error('invalid length')
     }
@@ -41,8 +45,15 @@ function WriteStream () {
   // Expose a Writable interface.
   Writable.call(self)
 
-  // State the file path to get its current size.  This is the offset
-  // where we will write the CRC-32 and length prefix.
+  // Construct a pass-through stream in regular mode.  All data written
+  // to this `Writable` will be written to this stream.  That way users
+  // can begin writing to this `Writable` before we finish running
+  // `stat` on the file below.
+  var proxyStream = self._proxyStream = new PassThrough()
+
+  // Stat the file path to ensure it exists and get its current size.
+  // The current size is the offset where we will write the CRC-32 and
+  // length prefix.
   fs.stat(path, function (error, stats) {
     if (error) {
       self.emit('error', error)
@@ -51,9 +62,11 @@ function WriteStream () {
       // first-sequence-number value written.  If we append without
       // that initial value, it won't be a complete blob-log file.
       if (!stats.isFile() || stats.size === 0) {
-        throw new Error(
+        var noSequenceNumber = new Error(
           'cannot append to file without first sequence number'
         )
+        noSequenceNumber.noSequenceNumber = true
+        self.emit('error', noSequenceNumber)
       // Save the current size as the offset we'll start at later if we
       // need to overwrite a zero-filled CRC-32 and length prefix.
       } else {
@@ -66,21 +79,25 @@ function WriteStream () {
 
       // If we were given CRC-32 and length values ahead of time, append
       // them.  Otherwise, append a zero-filled placeholder.
-      if (this._givenPrefix) {
-        self.write(self._crc, self._length)
+      if (self._givenPrefix) {
+        appendStream.write(self._prefix(self._CRC, self._length))
       } else {
         // Note that zero is a valid CRC-32, but not a valid blob
         // length.  Until we overwrite the length integer, a blob-log
-        // parser can tell this append wasn't completed.
-        self.write(self._prefix(0, 0))
+        // parser can tell this append wasn't finished.
+        appendStream.write(self._prefix(0, 0))
       }
+
+      // Proxy data buffered in the proxy stream _after_ we have written
+      // the prefix.
+      proxyStream.pipe(appendStream)
     }
   })
 }
 
-inherits(WriteStream, Writable)
+inherits(BlobLogAppend, Writable)
 
-var prototype = WriteStream.prototype
+var prototype = BlobLogAppend.prototype
 
 // Create a buffer containing bytes for a CRC-32 and blob length prefix.
 prototype._prefix = function (crc, length) {
@@ -99,10 +116,13 @@ prototype.emit = function (event) {
   // If we are calculating CRC-32 and length and emitting a `finish`...
   if (!self._givenPrefix && event === 'finish') {
     var prefix = self._prefix(
-      self._crc.digest().readUInt32BE(),
+      self._CRC.digest().readUInt32BE(),
       self._length
     )
-    fs.createWriteStream(self._path, {start: self._offset})
+    // From the readable-stream documentation:
+    // > Modifying a file rather than replacing it may require a flags
+    // > mode of `r+` rather than the default mode `w`.
+    fs.createWriteStream(self._path, {start: self._offset, flags: 'r+'})
     .end(prefix, function () {
       EventEmitter.prototype.emit.apply(self, argumentsArray)
     })
@@ -120,9 +140,10 @@ prototype._write = function (chunk, encoding, callback) {
     self._length += chunk.length
   }
   // Proxy the underlying file append stream.
-  var readyForMore = self._appendStream.write(chunk, encoding, callback)
+  var readyForMore = self._proxyStream.write(chunk, encoding, callback)
+  /* istanbul ignore if: TODO Write a covering test. */
   if (readyForMore === false) {
-    self._appendStream.once('drain', function () {
+    self._proxyStream.once('drain', function () {
       self.emit('drain')
     })
   }
@@ -138,6 +159,6 @@ function isValidUInt32 (argument) {
   return (
     Number.isInteger(argument) &&
     argument >= 0 &&
-    argument <= 2147483647
+    argument <= 4294967295
   )
 }
